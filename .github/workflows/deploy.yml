@@ -24,7 +24,7 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    environment: production
+    environment: Production
     permissions:
       contents: read
       packages: write
@@ -55,7 +55,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build-and-push
-    environment: production
+    environment: Production
     
     steps:
       - name: Checkout repository
