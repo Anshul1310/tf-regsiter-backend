@@ -5,18 +5,26 @@ on:
     branches:
       - main
     paths:
-      - 'backend/**'
+      - 'cmd/**'
+      - 'config/**'
+      - 'internals/**'
+      - 'migrations/**'
       - 'k8s/**'
+      - 'Dockerfile'
+      - 'go.mod'
+      - 'go.sum'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/tf-backend
+  IMAGE_NAME: anshul1310/tf-backend
+  NAMESPACE: transfinitte
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    environment: production
     permissions:
       contents: read
       packages: write
@@ -38,7 +46,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./backend
+          context: .
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
@@ -47,6 +55,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build-and-push
+    environment: production
     
     steps:
       - name: Checkout repository
@@ -58,15 +67,19 @@ jobs:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
+      - name: Ensure Namespace Exists
+        run: |
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Deploy Kubernetes Manifests
         run: |
-          kubectl apply -f k8s/postgres-statefulset.yaml
-          kubectl apply -f k8s/backend-service.yaml
-          kubectl apply -f k8s/network-policy.yaml
-          kubectl apply -f k8s/backend-deployment.yaml
-          kubectl apply -f k8s/hpa.yaml
+          kubectl apply -f k8s/postgres-statefulset.yaml -n ${{ env.NAMESPACE }}
+          kubectl apply -f k8s/backend-service.yaml -n ${{ env.NAMESPACE }}
+          kubectl apply -f k8s/network-policy.yaml -n ${{ env.NAMESPACE }}
+          kubectl apply -f k8s/backend-deployment.yaml -n ${{ env.NAMESPACE }}
+          kubectl apply -f k8s/hpa.yaml -n ${{ env.NAMESPACE }}
 
       - name: Update Deployment Image
         run: |
-          kubectl set image deployment/backend backend=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          kubectl rollout status deployment/backend
+          kubectl set image deployment/backend backend=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} -n ${{ env.NAMESPACE }}
+          kubectl rollout status deployment/backend -n ${{ env.NAMESPACE }}
