@@ -1,5 +1,6 @@
-/main
-/server
+node_modules
+.git
+.env
 *.exe
 *.exe~
 *.dll
@@ -7,6 +8,5 @@
 *.dylib
 *.test
 *.out
-.env
-/env.prod.env
-.env.*
+.idea/
+.vscode/

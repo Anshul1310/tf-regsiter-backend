@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -33,6 +34,10 @@ func main() {
 
 	// 4. Initialize Services
 	userService := service.NewUserService(userRepository, teamRepository, applicationConfig)
+	if err := userService.EnsureMasterUser(context.Background()); err != nil {
+		log.Printf("Notice: Master user check error: %v", err)
+	}
+
 	teamService := service.NewTeamService(teamRepository, userRepository, 5)
 	cashfreeService := service.NewCashfreeService(applicationConfig, teamRepository, userRepository)
 
@@ -55,7 +60,8 @@ func main() {
 	fiberApplication.Use(cors.New(cors.Config{
 		AllowOrigins:     applicationConfig.AllowedOrigins,
 		AllowMethods:     "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-User-ID, X-User-Email",
+		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-User-ID, X-User-Email, Cookie",
+		ExposeHeaders:    "Set-Cookie",
 		AllowCredentials: true,
 	}))
 

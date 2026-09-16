@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/Anshul1310/tf-register/internals/models"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -469,3 +470,134 @@ func (teamRepository *TeamRepository) RecordPaymentLog(
 
 	return nil
 }
+
+func (teamRepository *TeamRepository) CreateJoinRequest(
+	requestContext context.Context,
+	teamIdentifier string,
+	userIdentifier uuid.UUID,
+) error {
+	upsertQuery := `
+		INSERT INTO team_join_requests (team_id, user_id, status, created_at)
+		VALUES ($1, $2, 'pending', now())
+		ON CONFLICT (team_id, user_id) DO UPDATE SET
+			status = 'pending',
+			created_at = now();
+	`
+	_, err := teamRepository.databasePool.Exec(requestContext, upsertQuery, teamIdentifier, userIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to create join request: %w", err)
+	}
+	return nil
+}
+
+func (teamRepository *TeamRepository) GetPendingJoinRequestsForTeam(
+	requestContext context.Context,
+	teamIdentifier string,
+) ([]models.TeamJoinRequest, error) {
+	selectQuery := `
+		SELECT 
+			r.request_id,
+			r.team_id,
+			r.user_id,
+			r.status,
+			r.created_at,
+			COALESCE(u.name, '') as user_name,
+			COALESCE(u.email, '') as user_email,
+			u.roll_number as user_roll_number,
+			u.gender as user_gender,
+			u.pfp as user_pfp,
+			COALESCE(t.name, '') as team_name
+		FROM team_join_requests r
+		JOIN users u ON r.user_id = u.user_id
+		JOIN teams t ON r.team_id = t.team_id
+		WHERE r.team_id = $1 AND r.status = 'pending'
+		ORDER BY r.created_at DESC;
+	`
+	rows, queryError := teamRepository.databasePool.Query(requestContext, selectQuery, teamIdentifier)
+	if queryError != nil {
+		return nil, fmt.Errorf("failed to query team join requests: %w", queryError)
+	}
+	defer rows.Close()
+
+	var requests []models.TeamJoinRequest
+	for rows.Next() {
+		var req models.TeamJoinRequest
+		scanError := rows.Scan(
+			&req.RequestID,
+			&req.TeamID,
+			&req.UserID,
+			&req.Status,
+			&req.CreatedAt,
+			&req.UserName,
+			&req.UserEmail,
+			&req.UserRollNumber,
+			&req.UserGender,
+			&req.UserPfp,
+			&req.TeamName,
+		)
+		if scanError != nil {
+			return nil, fmt.Errorf("failed to scan join request row: %w", scanError)
+		}
+		requests = append(requests, req)
+	}
+	return requests, nil
+}
+
+func (teamRepository *TeamRepository) GetJoinRequestByID(
+	requestContext context.Context,
+	requestIdentifier uuid.UUID,
+) (*models.TeamJoinRequest, error) {
+	selectQuery := `
+		SELECT 
+			request_id,
+			team_id,
+			user_id,
+			status,
+			created_at
+		FROM team_join_requests
+		WHERE request_id = $1;
+	`
+	row := teamRepository.databasePool.QueryRow(requestContext, selectQuery, requestIdentifier)
+	var req models.TeamJoinRequest
+	scanError := row.Scan(
+		&req.RequestID,
+		&req.TeamID,
+		&req.UserID,
+		&req.Status,
+		&req.CreatedAt,
+	)
+	if scanError != nil {
+		return nil, fmt.Errorf("failed to get join request: %w", scanError)
+	}
+	return &req, nil
+}
+
+func (teamRepository *TeamRepository) UpdateJoinRequestStatus(
+	requestContext context.Context,
+	requestIdentifier uuid.UUID,
+	newStatus string,
+) error {
+	updateQuery := `
+		UPDATE team_join_requests
+		SET status = $1
+		WHERE request_id = $2;
+	`
+	_, err := teamRepository.databasePool.Exec(requestContext, updateQuery, newStatus, requestIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to update join request status: %w", err)
+	}
+	return nil
+}
+
+func (teamRepository *TeamRepository) DeleteJoinRequest(
+	requestContext context.Context,
+	requestIdentifier uuid.UUID,
+) error {
+	deleteQuery := `DELETE FROM team_join_requests WHERE request_id = $1;`
+	_, err := teamRepository.databasePool.Exec(requestContext, deleteQuery, requestIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to delete join request: %w", err)
+	}
+	return nil
+}
+

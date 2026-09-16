@@ -386,3 +386,131 @@ func (teamService *TeamService) SubmitManualPayment(
 
 	return nil
 }
+
+func (teamService *TeamService) ApplyToJoinPublicTeam(
+	requestContext context.Context,
+	userIdentifier uuid.UUID,
+	teamIdentifier string,
+) error {
+	trimmedTeamIdentifier := strings.TrimSpace(teamIdentifier)
+	if trimmedTeamIdentifier == "" {
+		return errors.New("team ID is required")
+	}
+
+	userRecord, findUserError := teamService.userRepository.FindUserByID(requestContext, userIdentifier)
+	if findUserError != nil {
+		return fmt.Errorf("failed to check user profile: %w", findUserError)
+	}
+	if userRecord == nil {
+		return errors.New("user not found")
+	}
+	if userRecord.TeamID != nil && *userRecord.TeamID != "" {
+		return errors.New("you are already part of a team")
+	}
+
+	teamRecord, findTeamError := teamService.teamRepository.FindTeamByID(requestContext, trimmedTeamIdentifier)
+	if findTeamError != nil {
+		return fmt.Errorf("failed to verify team: %w", findTeamError)
+	}
+	if teamRecord == nil {
+		return errors.New("team was not found")
+	}
+
+	if !teamRecord.IsPublic {
+		return errors.New("this team is private and only accepts direct joins using a team code")
+	}
+
+	currentMemberCount, countError := teamService.teamRepository.CountTeamMembers(requestContext, trimmedTeamIdentifier)
+	if countError != nil {
+		return fmt.Errorf("failed to count team members: %w", countError)
+	}
+	if currentMemberCount >= teamService.maxTeamMembers {
+		return fmt.Errorf("team is already at full capacity (%d/%d)", currentMemberCount, teamService.maxTeamMembers)
+	}
+
+	return teamService.teamRepository.CreateJoinRequest(requestContext, trimmedTeamIdentifier, userIdentifier)
+}
+
+func (teamService *TeamService) GetPendingJoinRequests(
+	requestContext context.Context,
+	teamIdentifier string,
+) ([]models.TeamJoinRequest, error) {
+	return teamService.teamRepository.GetPendingJoinRequestsForTeam(requestContext, teamIdentifier)
+}
+
+func (teamService *TeamService) AcceptJoinRequest(
+	requestContext context.Context,
+	leaderUserID uuid.UUID,
+	teamIdentifier string,
+	requestIdentifier uuid.UUID,
+) error {
+	// Verify leader
+	_, err := teamService.VerifyTeamLeader(requestContext, leaderUserID, teamIdentifier)
+	if err != nil {
+		return err
+	}
+
+	req, err := teamService.teamRepository.GetJoinRequestByID(requestContext, requestIdentifier)
+	if err != nil {
+		return fmt.Errorf("join request not found: %w", err)
+	}
+
+	if req.TeamID != teamIdentifier {
+		return errors.New("join request does not belong to this team")
+	}
+
+	// Check user not already in another team
+	userRecord, findUserError := teamService.userRepository.FindUserByID(requestContext, req.UserID)
+	if findUserError != nil || userRecord == nil {
+		return errors.New("applicant user not found")
+	}
+	if userRecord.TeamID != nil && *userRecord.TeamID != "" {
+		_ = teamService.teamRepository.UpdateJoinRequestStatus(requestContext, requestIdentifier, "rejected")
+		return errors.New("user has already joined another team")
+	}
+
+	// Check team capacity
+	currentMemberCount, countError := teamService.teamRepository.CountTeamMembers(requestContext, teamIdentifier)
+	if countError != nil {
+		return fmt.Errorf("failed to check capacity: %w", countError)
+	}
+	if currentMemberCount >= teamService.maxTeamMembers {
+		return fmt.Errorf("cannot accept: team is at max capacity (%d/%d)", currentMemberCount, teamService.maxTeamMembers)
+	}
+
+	// Add user to team
+	updateError := teamService.userRepository.UpdateUserTeam(requestContext, req.UserID, &teamIdentifier)
+	if updateError != nil {
+		return fmt.Errorf("failed to add user to team: %w", updateError)
+	}
+
+	// Mark request accepted
+	_ = teamService.teamRepository.UpdateJoinRequestStatus(requestContext, requestIdentifier, "accepted")
+
+	return nil
+}
+
+func (teamService *TeamService) RejectJoinRequest(
+	requestContext context.Context,
+	leaderUserID uuid.UUID,
+	teamIdentifier string,
+	requestIdentifier uuid.UUID,
+) error {
+	// Verify leader
+	_, err := teamService.VerifyTeamLeader(requestContext, leaderUserID, teamIdentifier)
+	if err != nil {
+		return err
+	}
+
+	req, err := teamService.teamRepository.GetJoinRequestByID(requestContext, requestIdentifier)
+	if err != nil {
+		return fmt.Errorf("join request not found: %w", err)
+	}
+
+	if req.TeamID != teamIdentifier {
+		return errors.New("join request does not belong to this team")
+	}
+
+	return teamService.teamRepository.UpdateJoinRequestStatus(requestContext, requestIdentifier, "rejected")
+}
+

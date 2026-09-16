@@ -121,6 +121,22 @@ func RunAutomaticMigrations(databasePool *pgxpool.Pool) error {
 		log.Printf("Notice: Payments table creation note: %v", paymentsTableError)
 	}
 
+	// 5. Create team_join_requests table for public team applications
+	createJoinRequestsTableQuery := `
+	CREATE TABLE IF NOT EXISTS team_join_requests (
+		request_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+		team_id text NOT NULL REFERENCES teams(team_id) ON DELETE CASCADE,
+		user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+		status text NOT NULL DEFAULT 'pending',
+		created_at timestamptz DEFAULT now(),
+		UNIQUE(team_id, user_id)
+	);`
+
+	_, joinRequestsTableError := databasePool.Exec(migrationContext, createJoinRequestsTableQuery)
+	if joinRequestsTableError != nil {
+		log.Printf("Notice: Join requests table creation note: %v", joinRequestsTableError)
+	}
+
 	log.Println("Database automatic migrations finished")
 	return nil
 }

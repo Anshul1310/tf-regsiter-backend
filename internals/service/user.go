@@ -255,18 +255,49 @@ func (userService *UserService) LoginWithDAuth(requestContext context.Context, l
 	userUUID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("dauth:"+cleanEmail))
 	pfpURL := fmt.Sprintf("https://api.dicebear.com/7.x/initials/svg?seed=%s", url.QueryEscape(userName))
 
+	// Extract roll number: from dauthUser.RollNo or by stripping @nitt.edu / @... from cleanEmail
+	rollNumber := strings.TrimSpace(dauthUser.RollNo)
+	if rollNumber == "" && strings.Contains(cleanEmail, "@") {
+		rollNumber = strings.TrimSuffix(cleanEmail, "@nitt.edu")
+		if strings.Contains(rollNumber, "@") {
+			rollNumber = strings.Split(rollNumber, "@")[0]
+		}
+		rollNumber = strings.TrimSpace(rollNumber)
+	}
+
+	// Extract & normalize gender from DAuth response
+	var userGender *string
+	if dauthUser.Gender != "" {
+		g := strings.ToLower(strings.TrimSpace(dauthUser.Gender))
+		if g == "m" || g == "male" {
+			g = "male"
+		} else if g == "f" || g == "female" {
+			g = "female"
+		} else {
+			g = "other"
+		}
+		userGender = &g
+	}
+
+	// Personal email: Keep empty if it is a @nitt.edu email so user can enter personal email in the form
+	var personalEmail string
+	if !strings.HasSuffix(cleanEmail, "@nitt.edu") {
+		personalEmail = cleanEmail
+	}
+
 	userModelToSave := &models.User{
 		UserID: userUUID,
-		Email:  cleanEmail,
+		Email:  personalEmail,
 		Name:   userName,
 		Pfp:    &pfpURL,
 	}
 
-	if dauthUser.Gender != "" {
-		userModelToSave.Gender = &dauthUser.Gender
+	if rollNumber != "" {
+		userModelToSave.RollNumber = &rollNumber
 	}
-	if dauthUser.RollNo != "" {
-		userModelToSave.RollNumber = &dauthUser.RollNo
+
+	if userGender != nil {
+		userModelToSave.Gender = userGender
 	}
 
 	savedUserRecord, upsertError := userService.userRepository.UpsertUser(requestContext, userModelToSave)
@@ -276,4 +307,68 @@ func (userService *UserService) LoginWithDAuth(requestContext context.Context, l
 
 	return savedUserRecord, nil
 }
+
+func (userService *UserService) EnsureMasterUser(requestContext context.Context) error {
+	masterEmail := "anshul@gmail.com"
+	existingUser, err := userService.userRepository.FindUserByEmail(requestContext, masterEmail)
+	if err != nil {
+		return fmt.Errorf("failed to check master user: %w", err)
+	}
+
+	rollNo := "112125003"
+	gender := "male"
+	pfp := "https://api.dicebear.com/7.x/initials/svg?seed=Anshul"
+	name := "Anshul"
+
+	if existingUser == nil {
+		userUUID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("master:"+masterEmail))
+		masterUser := &models.User{
+			UserID:     userUUID,
+			Name:       name,
+			Email:      masterEmail,
+			RollNumber: &rollNo,
+			Gender:     &gender,
+			Pfp:        &pfp,
+		}
+		_, createErr := userService.userRepository.UpsertUser(requestContext, masterUser)
+		if createErr != nil {
+			return fmt.Errorf("failed to create master user: %w", createErr)
+		}
+		fmt.Printf("Master user (%s) verified/created with roll number %s\n", masterEmail, rollNo)
+	} else if existingUser.RollNumber == nil || *existingUser.RollNumber == "" {
+		existingUser.RollNumber = &rollNo
+		existingUser.Gender = &gender
+		_, _ = userService.userRepository.UpsertUser(requestContext, existingUser)
+	}
+
+	return nil
+}
+
+func (userService *UserService) LoginWithEmail(requestContext context.Context, loginReq models.EmailLoginRequest) (*models.User, error) {
+	cleanEmail := strings.ToLower(strings.TrimSpace(loginReq.Email))
+	if cleanEmail == "" {
+		return nil, errors.New("email is required")
+	}
+
+	// 1. If master user credentials
+	if cleanEmail == "anshul@gmail.com" {
+		if strings.TrimSpace(loginReq.Password) != "anshul" {
+			return nil, errors.New("invalid password for master user")
+		}
+		_ = userService.EnsureMasterUser(requestContext)
+		userRecord, err := userService.userRepository.FindUserByEmail(requestContext, cleanEmail)
+		if err == nil && userRecord != nil {
+			return userRecord, nil
+		}
+	}
+
+	// 2. Only allow users who already exist in database
+	existingUser, err := userService.userRepository.FindUserByEmail(requestContext, cleanEmail)
+	if err != nil || existingUser == nil {
+		return nil, errors.New("user not found in database. Only pre-registered users can sign in with password")
+	}
+
+	return existingUser, nil
+}
+
 

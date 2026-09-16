@@ -26,6 +26,11 @@ type SyncUserRequest struct {
 	Pfp    string    `json:"pfp"`
 }
 
+type EmailLoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
 type UpdateUserProfileRequest struct {
 	Name       string  `json:"name"`
 	RollNumber string  `json:"roll_number"`

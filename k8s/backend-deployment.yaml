@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend
+        image: ghcr.io/anshul1310/tf-backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://tf_admin:tf_password@postgres:5432/tf_register?sslmode=disable"
+        # We also need DAuth configs here eventually, ideally via Secrets, but for now we set placeholders
+        - name: DAUTH_CLIENT_ID
+          value: "your-client-id"
+        - name: DAUTH_CLIENT_SECRET
+          value: "your-client-secret"
+        - name: DAUTH_REDIRECT_URI
+          value: "https://yourdomain.com/login"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "300m"
+            memory: "256Mi"

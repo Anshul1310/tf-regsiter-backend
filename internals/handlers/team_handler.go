@@ -133,6 +133,27 @@ func (teamHandler *TeamHandler) GetTeamByID(requestContext *fiber.Ctx) error {
 		})
 	}
 
+	// Restrict team details to members & leader only
+	authenticatedUserValue := requestContext.Locals("userID")
+	if authenticatedUserValue != nil {
+		authUserID := authenticatedUserValue.(uuid.UUID)
+		isMemberOrLeader := teamRecord.LeaderUserID == authUserID
+		if !isMemberOrLeader {
+			for _, member := range teamRecord.Members {
+				if member.UserID == authUserID {
+					isMemberOrLeader = true
+					break
+				}
+			}
+		}
+		if !isMemberOrLeader {
+			return requestContext.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"success": false,
+				"message": "Access restricted: You must be a member of this team to view its details",
+			})
+		}
+	}
+
 	return requestContext.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"data":    teamRecord,
@@ -505,3 +526,145 @@ func (teamHandler *TeamHandler) HandleCashfreeWebhook(requestContext *fiber.Ctx)
 		"message": "Webhook processed successfully",
 	})
 }
+
+func (teamHandler *TeamHandler) ApplyToJoinTeam(requestContext *fiber.Ctx) error {
+	authenticatedUserValue := requestContext.Locals("userID")
+	if authenticatedUserValue == nil {
+		return requestContext.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"message": "Authentication required to apply to a team",
+		})
+	}
+	authenticatedUserID := authenticatedUserValue.(uuid.UUID)
+
+	var applyReq models.ApplyTeamRequest
+	if err := requestContext.BodyParser(&applyReq); err != nil {
+		return requestContext.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request body: " + err.Error(),
+		})
+	}
+
+	if applyReq.TeamID == "" {
+		return requestContext.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "team_id is required",
+		})
+	}
+
+	applyErr := teamHandler.teamService.ApplyToJoinPublicTeam(
+		requestContext.Context(),
+		authenticatedUserID,
+		applyReq.TeamID,
+	)
+	if applyErr != nil {
+		return requestContext.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": applyErr.Error(),
+		})
+	}
+
+	return requestContext.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Application to join team submitted successfully. Pending leader approval.",
+	})
+}
+
+func (teamHandler *TeamHandler) GetTeamJoinRequests(requestContext *fiber.Ctx) error {
+	teamIdentifier := requestContext.Params("teamId")
+	if teamIdentifier == "" {
+		teamIdentifier = requestContext.Params("id")
+	}
+
+	requests, err := teamHandler.teamService.GetPendingJoinRequests(requestContext.Context(), teamIdentifier)
+	if err != nil {
+		return requestContext.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": err.Error(),
+		})
+	}
+
+	return requestContext.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    requests,
+	})
+}
+
+func (teamHandler *TeamHandler) AcceptJoinRequest(requestContext *fiber.Ctx) error {
+	authenticatedUserValue := requestContext.Locals("userID")
+	if authenticatedUserValue == nil {
+		return requestContext.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"message": "Authentication required",
+		})
+	}
+	leaderUserID := authenticatedUserValue.(uuid.UUID)
+
+	teamIdentifier := requestContext.Params("teamId")
+	requestIDStr := requestContext.Params("requestId")
+	requestID, parseErr := uuid.Parse(requestIDStr)
+	if parseErr != nil {
+		return requestContext.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request ID",
+		})
+	}
+
+	acceptErr := teamHandler.teamService.AcceptJoinRequest(
+		requestContext.Context(),
+		leaderUserID,
+		teamIdentifier,
+		requestID,
+	)
+	if acceptErr != nil {
+		return requestContext.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": acceptErr.Error(),
+		})
+	}
+
+	return requestContext.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Join request accepted successfully. Member has been added to your team.",
+	})
+}
+
+func (teamHandler *TeamHandler) RejectJoinRequest(requestContext *fiber.Ctx) error {
+	authenticatedUserValue := requestContext.Locals("userID")
+	if authenticatedUserValue == nil {
+		return requestContext.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"message": "Authentication required",
+		})
+	}
+	leaderUserID := authenticatedUserValue.(uuid.UUID)
+
+	teamIdentifier := requestContext.Params("teamId")
+	requestIDStr := requestContext.Params("requestId")
+	requestID, parseErr := uuid.Parse(requestIDStr)
+	if parseErr != nil {
+		return requestContext.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request ID",
+		})
+	}
+
+	rejectErr := teamHandler.teamService.RejectJoinRequest(
+		requestContext.Context(),
+		leaderUserID,
+		teamIdentifier,
+		requestID,
+	)
+	if rejectErr != nil {
+		return requestContext.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": rejectErr.Error(),
+		})
+	}
+
+	return requestContext.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Join request declined.",
+	})
+}
+

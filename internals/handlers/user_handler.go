@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"strings"
 	"time"
 
 	"github.com/Anshul1310/tf-register/internals/models"
@@ -103,26 +104,47 @@ func (userHandler *UserHandler) SyncUser(requestContext *fiber.Ctx) error {
 		})
 	}
 
-	// Generate a cryptographically signed JWT token
-	var tokenString string
-	if userHandler.jwtSecret != "" {
-		claims := jwt.MapClaims{
-			"sub":   syncedUserRecord.UserID.String(),
-			"email": syncedUserRecord.Email,
-			"exp":   time.Now().Add(30 * 24 * time.Hour).Unix(),
-			"iat":   time.Now().Unix(),
-		}
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		signed, err := token.SignedString([]byte(userHandler.jwtSecret))
-		if err == nil {
-			tokenString = signed
-		}
+	// Generate a cryptographically signed JWT token and set HTTP-only cookie
+	tokenString := userHandler.generateToken(syncedUserRecord)
+	if tokenString != "" {
+		userHandler.setAuthCookie(requestContext, tokenString)
 	}
 
 	return requestContext.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"message": "User synchronized successfully",
 		"data":    syncedUserRecord,
+		"token":   tokenString,
+	})
+}
+
+func (userHandler *UserHandler) HandleEmailLogin(requestContext *fiber.Ctx) error {
+	var loginReq models.EmailLoginRequest
+	if err := requestContext.BodyParser(&loginReq); err != nil {
+		return requestContext.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request payload: " + err.Error(),
+		})
+	}
+
+	userRecord, err := userHandler.userService.LoginWithEmail(requestContext.Context(), loginReq)
+	if err != nil {
+		return requestContext.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": err.Error(),
+		})
+	}
+
+	// Generate a cryptographically signed JWT token and set HTTP-only cookie
+	tokenString := userHandler.generateToken(userRecord)
+	if tokenString != "" {
+		userHandler.setAuthCookie(requestContext, tokenString)
+	}
+
+	return requestContext.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Login successful",
+		"data":    userRecord,
 		"token":   tokenString,
 	})
 }
@@ -215,20 +237,10 @@ func (userHandler *UserHandler) HandleDAuthLogin(requestContext *fiber.Ctx) erro
 		})
 	}
 
-	// Generate a cryptographically signed JWT token
-	var tokenString string
-	if userHandler.jwtSecret != "" {
-		claims := jwt.MapClaims{
-			"sub":   syncedUserRecord.UserID.String(),
-			"email": syncedUserRecord.Email,
-			"exp":   time.Now().Add(30 * 24 * time.Hour).Unix(),
-			"iat":   time.Now().Unix(),
-		}
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		signed, err := token.SignedString([]byte(userHandler.jwtSecret))
-		if err == nil {
-			tokenString = signed
-		}
+	// Generate a cryptographically signed JWT token and set HTTP-only cookie
+	tokenString := userHandler.generateToken(syncedUserRecord)
+	if tokenString != "" {
+		userHandler.setAuthCookie(requestContext, tokenString)
 	}
 
 	return requestContext.Status(fiber.StatusOK).JSON(fiber.Map{
@@ -238,4 +250,103 @@ func (userHandler *UserHandler) HandleDAuthLogin(requestContext *fiber.Ctx) erro
 		"token":   tokenString,
 	})
 }
+
+func (userHandler *UserHandler) generateToken(user *models.User) string {
+	if user == nil {
+		return ""
+	}
+	secret := userHandler.jwtSecret
+	if secret == "" {
+		secret = "tf-register-secret-key-2025"
+	}
+	claims := jwt.MapClaims{
+		"sub":   user.UserID.String(),
+		"email": user.Email,
+		"exp":   time.Now().Add(30 * 24 * time.Hour).Unix(),
+		"iat":   time.Now().Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString([]byte(secret))
+	if err != nil {
+		return ""
+	}
+	return signed
+}
+
+func (userHandler *UserHandler) setAuthCookie(requestContext *fiber.Ctx, tokenString string) {
+	if tokenString == "" {
+		return
+	}
+
+	isHTTPS := requestContext.Protocol() == "https" ||
+		requestContext.Get("X-Forwarded-Proto") == "https" ||
+		strings.HasPrefix(requestContext.Get("Origin"), "https://") ||
+		strings.HasPrefix(requestContext.Get("Referer"), "https://")
+
+	sameSite := "Lax"
+	secure := false
+	if isHTTPS {
+		sameSite = "None"
+		secure = true
+	}
+
+	requestContext.Cookie(&fiber.Cookie{
+		Name:     "token",
+		Value:    tokenString,
+		Expires:  time.Now().Add(30 * 24 * time.Hour),
+		HTTPOnly: true,
+		Secure:   secure,
+		SameSite: sameSite,
+		Path:     "/",
+	})
+
+	requestContext.Cookie(&fiber.Cookie{
+		Name:     "jwt",
+		Value:    tokenString,
+		Expires:  time.Now().Add(30 * 24 * time.Hour),
+		HTTPOnly: true,
+		Secure:   secure,
+		SameSite: sameSite,
+		Path:     "/",
+	})
+}
+
+func (userHandler *UserHandler) HandleLogout(requestContext *fiber.Ctx) error {
+	isHTTPS := requestContext.Protocol() == "https" ||
+		requestContext.Get("X-Forwarded-Proto") == "https" ||
+		strings.HasPrefix(requestContext.Get("Origin"), "https://") ||
+		strings.HasPrefix(requestContext.Get("Referer"), "https://")
+
+	sameSite := "Lax"
+	secure := false
+	if isHTTPS {
+		sameSite = "None"
+		secure = true
+	}
+
+	requestContext.Cookie(&fiber.Cookie{
+		Name:     "token",
+		Value:    "",
+		Expires:  time.Now().Add(-1 * time.Hour),
+		HTTPOnly: true,
+		Secure:   secure,
+		SameSite: sameSite,
+		Path:     "/",
+	})
+	requestContext.Cookie(&fiber.Cookie{
+		Name:     "jwt",
+		Value:    "",
+		Expires:  time.Now().Add(-1 * time.Hour),
+		HTTPOnly: true,
+		Secure:   secure,
+		SameSite: sameSite,
+		Path:     "/",
+	})
+
+	return requestContext.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Logged out successfully",
+	})
+}
+
 

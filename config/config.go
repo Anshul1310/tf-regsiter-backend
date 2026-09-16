@@ -58,17 +58,58 @@ func LoadConfig() *Config {
 		jwtSecretKey = "tf-register-secret-key-2025"
 	}
 
-	allowedOriginsList := os.Getenv("ALLOWED_ORIGINS")
-	if allowedOriginsList == "" {
-		allowedOriginsList = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,https://tf-register-frontend.netlify.app,https://tf-register-frontend.netlify.app/"
-	} else if !strings.Contains(allowedOriginsList, "tf-register-frontend.netlify.app") {
-		allowedOriginsList = allowedOriginsList + ",https://tf-register-frontend.netlify.app,https://tf-register-frontend.netlify.app/"
+	frontendApplicationURL := "https://tf-register-2025-rr5l.vercel.app"
+	if envFrontend := os.Getenv("VITE_PROD_URL_FRONTEND"); envFrontend != "" {
+		frontendApplicationURL = envFrontend
 	}
 
-	frontendApplicationURL := os.Getenv("VITE_PROD_URL_FRONTEND")
-	if frontendApplicationURL == "" {
-		frontendApplicationURL = "https://tf-register-frontend.netlify.app"
+	rawAllowedOrigins := os.Getenv("ALLOWED_ORIGINS")
+	originsMap := make(map[string]bool)
+
+	// Hardcoded development and production origins
+	defaultOrigins := []string{
+		"http://localhost:5173",
+		"http://127.0.0.1:5173",
+		"http://localhost:5163",
+		"http://127.0.0.1:5163",
+		"http://localhost:3000",
+		"http://127.0.0.1:3000",
+		"http://localhost:4173",
+		"http://127.0.0.1:4173",
+		"https://tf-register-2025-rr5l.vercel.app",
+		"https://tf-register-frontend.netlify.app",
 	}
+	for _, o := range defaultOrigins {
+		trimmed := strings.TrimRight(strings.TrimSpace(o), "/")
+		if trimmed != "" {
+			originsMap[trimmed] = true
+			originsMap[trimmed+"/"] = true
+		}
+	}
+
+	if frontendApplicationURL != "" {
+		trimmed := strings.TrimRight(strings.TrimSpace(frontendApplicationURL), "/")
+		if trimmed != "" {
+			originsMap[trimmed] = true
+			originsMap[trimmed+"/"] = true
+		}
+	}
+
+	if rawAllowedOrigins != "" {
+		for _, part := range strings.Split(rawAllowedOrigins, ",") {
+			trimmed := strings.TrimRight(strings.TrimSpace(part), "/")
+			if trimmed != "" {
+				originsMap[trimmed] = true
+				originsMap[trimmed+"/"] = true
+			}
+		}
+	}
+
+	var combinedOrigins []string
+	for origin := range originsMap {
+		combinedOrigins = append(combinedOrigins, origin)
+	}
+	allowedOriginsList := strings.Join(combinedOrigins, ",")
 
 	teamCapacityLimit := 50
 	teamCapacityString := os.Getenv("TEAM_CAP")
