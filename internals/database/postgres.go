@@ -137,6 +137,28 @@ func RunAutomaticMigrations(databasePool *pgxpool.Pool) error {
 		log.Printf("Notice: Join requests table creation note: %v", joinRequestsTableError)
 	}
 
+	// 6. Create admin_users table for RBAC admin panel
+	createAdminUsersTableQuery := `
+	CREATE TABLE IF NOT EXISTS admin_users (
+		admin_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+		email text NOT NULL UNIQUE,
+		name text DEFAULT '',
+		picture text,
+		role text NOT NULL DEFAULT 'admin',
+		can_manage_users boolean NOT NULL DEFAULT true,
+		can_manage_teams boolean NOT NULL DEFAULT true,
+		can_manage_payments boolean NOT NULL DEFAULT true,
+		can_manage_admins boolean NOT NULL DEFAULT false,
+		is_active boolean NOT NULL DEFAULT true,
+		created_at timestamptz DEFAULT now(),
+		updated_at timestamptz DEFAULT now()
+	);`
+
+	_, adminUsersTableError := databasePool.Exec(migrationContext, createAdminUsersTableQuery)
+	if adminUsersTableError != nil {
+		log.Printf("Notice: Admin users table creation note: %v", adminUsersTableError)
+	}
+
 	log.Println("Database automatic migrations finished")
 	return nil
 }

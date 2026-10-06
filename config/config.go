@@ -24,6 +24,8 @@ type Config struct {
 	DAuthClientID       string
 	DAuthClientSecret   string
 	DAuthRedirectURI    string
+	AdminEmails         []string
+	GoogleClientID      string
 }
 
 func LoadConfig() *Config {
@@ -70,12 +72,20 @@ func LoadConfig() *Config {
 	defaultOrigins := []string{
 		"http://localhost:5173",
 		"http://127.0.0.1:5173",
+		"http://localhost:5174",
+		"http://127.0.0.1:5174",
+		"http://localhost:5175",
+		"http://127.0.0.1:5175",
 		"http://localhost:5163",
 		"http://127.0.0.1:5163",
 		"http://localhost:3000",
 		"http://127.0.0.1:3000",
+		"http://localhost:3001",
+		"http://127.0.0.1:3001",
 		"http://localhost:4173",
 		"http://127.0.0.1:4173",
+		"http://localhost:4174",
+		"http://127.0.0.1:4174",
 		"https://tf-register-2025-rr5l.vercel.app",
 		"https://tf-register-frontend.netlify.app",
 	}
@@ -154,7 +164,37 @@ func LoadConfig() *Config {
 		dauthRedirectURI = os.Getenv("VITE_DAUTH_REDIRECT_URI")
 	}
 
-	log.Printf("Loaded configuration with port: %s, cashfree mode: %s", serverPort, cashfreeEnvironmentMode)
+	adminEmailsRaw := os.Getenv("ADMIN_EMAILS")
+	var adminEmailsList []string
+	rootSuperadmins := []string{"transfinitte@gmail.com", "negi.anshulnegi17@gmail.com"}
+	for _, root := range rootSuperadmins {
+		adminEmailsList = append(adminEmailsList, strings.ToLower(strings.TrimSpace(root)))
+	}
+
+	if adminEmailsRaw != "" {
+		for _, email := range strings.Split(adminEmailsRaw, ",") {
+			trimmed := strings.ToLower(strings.TrimSpace(email))
+			if trimmed != "" {
+				exists := false
+				for _, existing := range adminEmailsList {
+					if existing == trimmed {
+						exists = true
+						break
+					}
+				}
+				if !exists {
+					adminEmailsList = append(adminEmailsList, trimmed)
+				}
+			}
+		}
+	}
+
+	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
+	if googleClientID == "" {
+		googleClientID = os.Getenv("VITE_GOOGLE_CLIENT_ID")
+	}
+
+	log.Printf("Loaded configuration with port: %s, cashfree mode: %s, admin emails: %v", serverPort, cashfreeEnvironmentMode, adminEmailsList)
 
 	return &Config{
 		Port:                serverPort,
@@ -171,5 +211,7 @@ func LoadConfig() *Config {
 		DAuthClientID:       dauthClientID,
 		DAuthClientSecret:   dauthClientSecret,
 		DAuthRedirectURI:    dauthRedirectURI,
+		AdminEmails:         adminEmailsList,
+		GoogleClientID:      googleClientID,
 	}
 }
