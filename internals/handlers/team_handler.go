@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"fmt"
+	"log"
+	"net/url"
 	"strings"
 
 	"github.com/Anshul1310/tf-register/internals/models"
@@ -213,8 +216,9 @@ func (teamHandler *TeamHandler) GetPaymentStats(requestContext *fiber.Ctx) error
 	}
 
 	return requestContext.Status(fiber.StatusOK).JSON(fiber.Map{
-		"success": true,
-		"count":   paidTeamCount,
+		"success":  true,
+		"count":    paidTeamCount,
+		"team_cap": teamHandler.cashfreeService.GetTeamCap(),
 	})
 }
 
@@ -466,11 +470,22 @@ func (teamHandler *TeamHandler) CreateCheckoutOrder(requestContext *fiber.Ctx) e
 		})
 	}
 
+	clientOrigin := strings.TrimRight(strings.TrimSpace(requestContext.Get("Origin")), "/")
+	if clientOrigin == "" {
+		referer := strings.TrimRight(strings.TrimSpace(requestContext.Get("Referer")), "/")
+		if referer != "" {
+			if parsedURL, err := url.Parse(referer); err == nil && parsedURL.Host != "" {
+				clientOrigin = fmt.Sprintf("%s://%s", parsedURL.Scheme, parsedURL.Host)
+			}
+		}
+	}
+
 	cashfreeOrderResponse, orderError := teamHandler.cashfreeService.CreatePaymentOrder(
 		requestContext.Context(),
 		checkoutRequest.TeamID,
 		checkoutRequest.UserID,
 		checkoutRequest.TeamName,
+		clientOrigin,
 	)
 	if orderError != nil {
 		return requestContext.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -499,8 +514,9 @@ func (teamHandler *TeamHandler) VerifyPayment(requestContext *fiber.Ctx) error {
 		verifyRequest.TeamID,
 	)
 	if verificationError != nil {
-		return requestContext.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+		return requestContext.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
+			"paid":    false,
 			"message": verificationError.Error(),
 		})
 	}
@@ -513,8 +529,23 @@ func (teamHandler *TeamHandler) VerifyPayment(requestContext *fiber.Ctx) error {
 
 func (teamHandler *TeamHandler) HandleCashfreeWebhook(requestContext *fiber.Ctx) error {
 	webhookBodyBytes := requestContext.Body()
-	processError := teamHandler.cashfreeService.ProcessWebhook(requestContext.Context(), webhookBodyBytes)
+	signature := requestContext.Get("x-webhook-signature")
+	if signature == "" {
+		signature = requestContext.Get("X-Webhook-Signature")
+	}
+	timestamp := requestContext.Get("x-webhook-timestamp")
+	if timestamp == "" {
+		timestamp = requestContext.Get("X-Webhook-Timestamp")
+	}
+
+	processError := teamHandler.cashfreeService.ProcessWebhook(
+		requestContext.Context(),
+		webhookBodyBytes,
+		signature,
+		timestamp,
+	)
 	if processError != nil {
+		log.Printf("[Cashfree Webhook Error] %v", processError)
 		return requestContext.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
 			"message": processError.Error(),
@@ -524,6 +555,18 @@ func (teamHandler *TeamHandler) HandleCashfreeWebhook(requestContext *fiber.Ctx)
 	return requestContext.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"message": "Webhook processed successfully",
+	})
+}
+
+func (teamHandler *TeamHandler) GetPaymentConfig(requestContext *fiber.Ctx) error {
+	return requestContext.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success":          true,
+		"amount":           teamHandler.cashfreeService.GetPaymentAmount(),
+		"currency":         "INR",
+		"environment":      strings.ToLower(teamHandler.cashfreeService.GetEnvironment()),
+		"min_team_members": teamHandler.cashfreeService.GetMinTeamMembers(),
+		"max_team_members": teamHandler.cashfreeService.GetMaxTeamMembers(),
+		"team_cap":         teamHandler.cashfreeService.GetTeamCap(),
 	})
 }
 

@@ -35,13 +35,13 @@ type GoogleAuthRequest struct {
 }
 
 type GoogleTokenInfo struct {
-	Sub           string `json:"sub"`
-	Email         string `json:"email"`
-	EmailVerified bool   `json:"email_verified"`
-	Name          string `json:"name"`
-	Picture       string `json:"picture"`
-	GivenName     string `json:"given_name"`
-	FamilyName    string `json:"family_name"`
+	Sub           string      `json:"sub"`
+	Email         string      `json:"email"`
+	EmailVerified interface{} `json:"email_verified"`
+	Name          string      `json:"name"`
+	Picture       string      `json:"picture"`
+	GivenName     string      `json:"given_name"`
+	FamilyName    string      `json:"family_name"`
 }
 
 type CreateAdminRequest struct {

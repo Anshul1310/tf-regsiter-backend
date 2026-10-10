@@ -40,7 +40,7 @@ func InitializeDatabasePool(databaseConnectionString string) (*pgxpool.Pool, err
 
 	migrationError := RunAutomaticMigrations(databasePool)
 	if migrationError != nil {
-		log.Printf("Warning: Database migration warning: %v", migrationError)
+		log.Fatalf("Fatal: Database migration failed: %v", migrationError)
 	}
 
 	GlobalDatabasePool = databasePool
@@ -48,8 +48,12 @@ func InitializeDatabasePool(databaseConnectionString string) (*pgxpool.Pool, err
 }
 
 func RunAutomaticMigrations(databasePool *pgxpool.Pool) error {
-	migrationContext, cancelFunction := context.WithTimeout(context.Background(), 15*time.Second)
+	migrationContext, cancelFunction := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancelFunction()
+
+	// Ensure UUID extensions are available
+	_, _ = databasePool.Exec(migrationContext, `CREATE EXTENSION IF NOT EXISTS "pgcrypto";`)
+	_, _ = databasePool.Exec(migrationContext, `CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`)
 
 	// 1. Create teams table if not exists
 	createTeamsTableQuery := `
@@ -68,8 +72,10 @@ func RunAutomaticMigrations(databasePool *pgxpool.Pool) error {
 
 	_, teamsTableError := databasePool.Exec(migrationContext, createTeamsTableQuery)
 	if teamsTableError != nil {
+		log.Printf("[Migration Error] Failed to create teams table: %v", teamsTableError)
 		return fmt.Errorf("failed to execute teams table migration: %w", teamsTableError)
 	}
+	log.Println("[Migration] Table 'teams' ready")
 
 	// 2. Create users table if not exists
 	createUsersTableQuery := `
@@ -88,14 +94,16 @@ func RunAutomaticMigrations(databasePool *pgxpool.Pool) error {
 
 	_, usersTableError := databasePool.Exec(migrationContext, createUsersTableQuery)
 	if usersTableError != nil {
+		log.Printf("[Migration Error] Failed to create users table: %v", usersTableError)
 		return fmt.Errorf("failed to execute users table migration: %w", usersTableError)
 	}
+	log.Println("[Migration] Table 'users' ready")
 
 	// 3. Create index on users team_id
 	createIndexQuery := `CREATE INDEX IF NOT EXISTS idx_users_team_id ON users(team_id);`
 	_, indexError := databasePool.Exec(migrationContext, createIndexQuery)
 	if indexError != nil {
-		log.Printf("Notice: Index creation note: %v", indexError)
+		log.Printf("[Migration Notice] Index creation note: %v", indexError)
 	}
 
 	// 4. Create payments log table for audit & Cashfree reconciliation
@@ -118,7 +126,9 @@ func RunAutomaticMigrations(databasePool *pgxpool.Pool) error {
 
 	_, paymentsTableError := databasePool.Exec(migrationContext, createPaymentsTableQuery)
 	if paymentsTableError != nil {
-		log.Printf("Notice: Payments table creation note: %v", paymentsTableError)
+		log.Printf("[Migration Error] Payments table creation: %v", paymentsTableError)
+	} else {
+		log.Println("[Migration] Table 'payments' ready")
 	}
 
 	// 5. Create team_join_requests table for public team applications
@@ -134,7 +144,9 @@ func RunAutomaticMigrations(databasePool *pgxpool.Pool) error {
 
 	_, joinRequestsTableError := databasePool.Exec(migrationContext, createJoinRequestsTableQuery)
 	if joinRequestsTableError != nil {
-		log.Printf("Notice: Join requests table creation note: %v", joinRequestsTableError)
+		log.Printf("[Migration Error] Join requests table creation: %v", joinRequestsTableError)
+	} else {
+		log.Println("[Migration] Table 'team_join_requests' ready")
 	}
 
 	// 6. Create admin_users table for RBAC admin panel
@@ -156,10 +168,12 @@ func RunAutomaticMigrations(databasePool *pgxpool.Pool) error {
 
 	_, adminUsersTableError := databasePool.Exec(migrationContext, createAdminUsersTableQuery)
 	if adminUsersTableError != nil {
-		log.Printf("Notice: Admin users table creation note: %v", adminUsersTableError)
+		log.Printf("[Migration Error] Admin users table creation: %v", adminUsersTableError)
+	} else {
+		log.Println("[Migration] Table 'admin_users' ready")
 	}
 
-	log.Println("Database automatic migrations finished")
+	log.Println("[Migration] All database tables successfully initialized and verified")
 	return nil
 }
 

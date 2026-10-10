@@ -39,7 +39,7 @@ func main() {
 		log.Printf("Notice: Master user check error: %v", err)
 	}
 
-	teamService := service.NewTeamService(teamRepository, userRepository, 5)
+	teamService := service.NewTeamService(teamRepository, userRepository, applicationConfig.MaxTeamMembers)
 	cashfreeService := service.NewCashfreeService(applicationConfig, teamRepository, userRepository)
 	adminService := service.NewAdminService(adminRepository, applicationConfig)
 	if err := adminService.SeedRootAdmins(context.Background()); err != nil {

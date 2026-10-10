@@ -39,18 +39,18 @@ func SetupRoutes(
 		// -------------------------------------------------------------
 		userGroup := rootGroup.Group("/user")
 
+		// Authenticated user endpoints
+		userGroup.Get("/me", middlewares.AuthenticateUser(jwtSecretKey), userHandler.GetCurrentUser)
+		userGroup.Post("/profile", middlewares.AuthenticateUser(jwtSecretKey), userHandler.UpdateProfile)
+		userGroup.Put("/profile", middlewares.AuthenticateUser(jwtSecretKey), userHandler.UpdateProfile)
+		userGroup.Post("/leave-team", middlewares.AuthenticateUser(jwtSecretKey), userHandler.LeaveTeam)
+
 		// Public/Semi-public user endpoints
 		userGroup.Post("/dauth", userHandler.HandleDAuthLogin)
 		userGroup.Post("/login", userHandler.HandleEmailLogin)
 		userGroup.Post("/sync", middlewares.OptionalAuthenticateUser(jwtSecretKey), userHandler.SyncUser)
 		userGroup.Get("/:id", userHandler.GetUserByID)
 		userGroup.Post("/logout", userHandler.HandleLogout)
-
-		// Authenticated user endpoints
-		userGroup.Get("/me", middlewares.AuthenticateUser(jwtSecretKey), userHandler.GetCurrentUser)
-		userGroup.Post("/profile", middlewares.AuthenticateUser(jwtSecretKey), userHandler.UpdateProfile)
-		userGroup.Put("/profile", middlewares.AuthenticateUser(jwtSecretKey), userHandler.UpdateProfile)
-		userGroup.Post("/leave-team", middlewares.AuthenticateUser(jwtSecretKey), userHandler.LeaveTeam)
 
 		// -------------------------------------------------------------
 		// Team Routes
@@ -88,6 +88,7 @@ func SetupRoutes(
 		teamGroup.Post("/:teamId/pay", teamHandler.SubmitManualPayment)
 
 		// Cashfree checkout & payment endpoints
+		rootGroup.Get("/payment/config", teamHandler.GetPaymentConfig)
 		rootGroup.Post("/checkout", teamHandler.CreateCheckoutOrder)
 		rootGroup.Post("/payment/checkout", teamHandler.CreateCheckoutOrder)
 		rootGroup.Post("/payment/verify", teamHandler.VerifyPayment)

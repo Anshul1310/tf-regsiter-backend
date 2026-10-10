@@ -20,21 +20,13 @@ func extractAdminToken(c *fiber.Ctx) string {
 		return adminCookie
 	}
 
-	tokenCookie := c.Cookies("token")
-	if tokenCookie != "" {
-		return tokenCookie
-	}
-
-	// Fallback to raw Cookie header parsing
+	// Fallback to raw Cookie header parsing for admin_token
 	cookieHeader := c.Get("Cookie")
 	if cookieHeader != "" {
 		for _, part := range strings.Split(cookieHeader, ";") {
 			trimmed := strings.TrimSpace(part)
 			if strings.HasPrefix(trimmed, "admin_token=") {
 				return strings.TrimPrefix(trimmed, "admin_token=")
-			}
-			if strings.HasPrefix(trimmed, "token=") {
-				return strings.TrimPrefix(trimmed, "token=")
 			}
 		}
 	}
@@ -72,6 +64,15 @@ func AuthenticateAdmin(jwtSecretKey string) fiber.Handler {
 			})
 		}
 
+		// Enforce token type: MUST explicitly be an admin token
+		tokenType, hasType := claims["type"].(string)
+		if !hasType || tokenType != "admin" {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"success": false,
+				"message": "Forbidden: access restricted to administrators only",
+			})
+		}
+
 		subClaim, hasSub := claims["sub"].(string)
 		if !hasSub || subClaim == "" {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -91,8 +92,11 @@ func AuthenticateAdmin(jwtSecretKey string) fiber.Handler {
 		email, _ := claims["email"].(string)
 		name, _ := claims["name"].(string)
 		role, _ := claims["role"].(string)
-		if role == "" {
-			role = "admin"
+		if role != "admin" && role != "superadmin" {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"success": false,
+				"message": "Forbidden: valid administrator role required",
+			})
 		}
 
 		canUsers, _ := claims["can_manage_users"].(bool)

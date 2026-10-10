@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -46,44 +49,74 @@ func (s *AdminService) VerifyGoogleToken(ctx context.Context, token string) (*mo
 		return nil, errors.New("empty google token")
 	}
 
-	// 1. Try Google ID token validation endpoint
-	tokenInfoURL := fmt.Sprintf("https://oauth2.googleapis.com/tokeninfo?id_token=%s", token)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenInfoURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create http request: %w", err)
-	}
-
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err == nil && resp.StatusCode == http.StatusOK {
-		defer resp.Body.Close()
-		var info models.GoogleTokenInfo
-		if err := json.NewDecoder(resp.Body).Decode(&info); err == nil && info.Email != "" {
-			return &info, nil
+	var lastErr string
+
+	// 1. Try Google ID token validation endpoint
+	tokenInfoURL := fmt.Sprintf("https://oauth2.googleapis.com/tokeninfo?id_token=%s", url.QueryEscape(token))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenInfoURL, nil)
+	if err == nil {
+		resp, doErr := client.Do(req)
+		if doErr == nil {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				var info models.GoogleTokenInfo
+				if unmarshalErr := json.Unmarshal(bodyBytes, &info); unmarshalErr == nil && info.Email != "" {
+					return &info, nil
+				} else if unmarshalErr != nil {
+					log.Printf("[VerifyGoogleToken] JSON unmarshal error on tokeninfo: %v (body: %s)", unmarshalErr, string(bodyBytes))
+				}
+			} else {
+				lastErr = string(bodyBytes)
+				log.Printf("[VerifyGoogleToken] tokeninfo endpoint returned HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+			}
+		} else {
+			lastErr = doErr.Error()
+			log.Printf("[VerifyGoogleToken] HTTP request to tokeninfo failed: %v", doErr)
 		}
 	}
-	if resp != nil {
-		_ = resp.Body.Close()
+
+	// 2. Try Google tokeninfo with access_token (in case an access token was provided)
+	accessTokenInfoURL := fmt.Sprintf("https://oauth2.googleapis.com/tokeninfo?access_token=%s", url.QueryEscape(token))
+	reqAccess, errAccess := http.NewRequestWithContext(ctx, http.MethodGet, accessTokenInfoURL, nil)
+	if errAccess == nil {
+		respAccess, doErrAccess := client.Do(reqAccess)
+		if doErrAccess == nil {
+			bodyBytes, _ := io.ReadAll(respAccess.Body)
+			respAccess.Body.Close()
+			if respAccess.StatusCode == http.StatusOK {
+				var info models.GoogleTokenInfo
+				if unmarshalErr := json.Unmarshal(bodyBytes, &info); unmarshalErr == nil && info.Email != "" {
+					return &info, nil
+				}
+			}
+		}
 	}
 
-	// 2. Try Google UserInfo endpoint (if access_token was passed instead of id_token)
+	// 3. Try Google UserInfo endpoint (if access_token was passed instead of id_token)
 	userInfoURL := "https://www.googleapis.com/oauth2/v3/userinfo"
 	reqUser, err := http.NewRequestWithContext(ctx, http.MethodGet, userInfoURL, nil)
 	if err == nil {
 		reqUser.Header.Set("Authorization", "Bearer "+token)
 		respUser, errUser := client.Do(reqUser)
-		if errUser == nil && respUser.StatusCode == http.StatusOK {
-			defer respUser.Body.Close()
-			var info models.GoogleTokenInfo
-			if err := json.NewDecoder(respUser.Body).Decode(&info); err == nil && info.Email != "" {
-				return &info, nil
+		if errUser == nil {
+			bodyBytes, _ := io.ReadAll(respUser.Body)
+			respUser.Body.Close()
+			if respUser.StatusCode == http.StatusOK {
+				var info models.GoogleTokenInfo
+				if unmarshalErr := json.Unmarshal(bodyBytes, &info); unmarshalErr == nil && info.Email != "" {
+					return &info, nil
+				}
+			} else {
+				log.Printf("[VerifyGoogleToken] userinfo endpoint returned HTTP %d: %s", respUser.StatusCode, string(bodyBytes))
 			}
-		}
-		if respUser != nil {
-			_ = respUser.Body.Close()
 		}
 	}
 
+	if lastErr != "" {
+		return nil, fmt.Errorf("invalid or expired google token: %s", lastErr)
+	}
 	return nil, errors.New("invalid or expired google token")
 }
 

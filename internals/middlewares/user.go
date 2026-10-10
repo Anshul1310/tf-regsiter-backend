@@ -63,6 +63,14 @@ func AuthenticateUser(jwtSecretKey string) fiber.Handler {
 
 			// Standard cryptographically verified HMAC signature
 			if tokenParseError == nil && parsedToken.Valid {
+				tokenType, _ := tokenClaims["type"].(string)
+				if tokenType == "admin" {
+					return requestContext.Status(fiber.StatusForbidden).JSON(fiber.Map{
+						"success": false,
+						"message": "Forbidden: admin tokens cannot be used for user endpoints",
+					})
+				}
+
 				subjectClaim, hasSubject := tokenClaims["sub"].(string)
 				if hasSubject && subjectClaim != "" {
 					parsedUserUUID, uuidParseError := uuid.Parse(subjectClaim)

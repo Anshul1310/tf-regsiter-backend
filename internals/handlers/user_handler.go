@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"strings"
 	"time"
 
@@ -49,6 +50,10 @@ func (userHandler *UserHandler) GetCurrentUser(requestContext *fiber.Ctx) error 
 
 func (userHandler *UserHandler) GetUserByID(requestContext *fiber.Ctx) error {
 	userIdentifierParameter := requestContext.Params("id")
+	if userIdentifierParameter == "me" {
+		return userHandler.GetCurrentUser(requestContext)
+	}
+
 	parsedUserUUID, parseError := uuid.Parse(userIdentifierParameter)
 	if parseError != nil {
 		return requestContext.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -231,6 +236,7 @@ func (userHandler *UserHandler) HandleDAuthLogin(requestContext *fiber.Ctx) erro
 
 	syncedUserRecord, dauthError := userHandler.userService.LoginWithDAuth(requestContext.Context(), dauthReq)
 	if dauthError != nil {
+		log.Printf("[HandleDAuthLogin] Error: %v", dauthError)
 		return requestContext.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
 			"message": dauthError.Error(),
@@ -262,6 +268,7 @@ func (userHandler *UserHandler) generateToken(user *models.User) string {
 	claims := jwt.MapClaims{
 		"sub":   user.UserID.String(),
 		"email": user.Email,
+		"type":  "user",
 		"exp":   time.Now().Add(30 * 24 * time.Hour).Unix(),
 		"iat":   time.Now().Unix(),
 	}

@@ -16,11 +16,14 @@ type Config struct {
 	AllowedOrigins      string
 	FrontendURL         string
 	TeamCap             int
+	MinTeamMembers      int
+	MaxTeamMembers      int
 	PaymentAmount       float64
 	CashfreeAppID       string
 	CashfreeSecretKey   string
 	CashfreeEnvironment string
 	CashfreeApiVersion  string
+	CashfreeNotifyURL   string
 	DAuthClientID       string
 	DAuthClientSecret   string
 	DAuthRedirectURI    string
@@ -60,8 +63,10 @@ func LoadConfig() *Config {
 		jwtSecretKey = "tf-register-secret-key-2025"
 	}
 
-	frontendApplicationURL := "https://tf-register-2025-rr5l.vercel.app"
-	if envFrontend := os.Getenv("VITE_PROD_URL_FRONTEND"); envFrontend != "" {
+	frontendApplicationURL := "http://localhost:5173"
+	if envFrontend := os.Getenv("FRONTEND_URL"); envFrontend != "" {
+		frontendApplicationURL = envFrontend
+	} else if envFrontend := os.Getenv("VITE_PROD_URL_FRONTEND"); envFrontend != "" {
 		frontendApplicationURL = envFrontend
 	}
 
@@ -124,44 +129,84 @@ func LoadConfig() *Config {
 	teamCapacityLimit := 50
 	teamCapacityString := os.Getenv("TEAM_CAP")
 	if teamCapacityString != "" {
-		parsedCapacity, parseError := strconv.Atoi(teamCapacityString)
+		parsedCapacity, parseError := strconv.Atoi(strings.TrimSpace(teamCapacityString))
 		if parseError == nil && parsedCapacity > 0 {
 			teamCapacityLimit = parsedCapacity
 		}
 	}
 
+	minMembersLimit := 1
+	if minStr := os.Getenv("MIN_TEAM_MEMBERS"); minStr != "" {
+		if parsedMin, err := strconv.Atoi(strings.TrimSpace(minStr)); err == nil && parsedMin > 0 {
+			minMembersLimit = parsedMin
+		}
+	} else if minStr := os.Getenv("TEAM_MIN_MEMBERS"); minStr != "" {
+		if parsedMin, err := strconv.Atoi(strings.TrimSpace(minStr)); err == nil && parsedMin > 0 {
+			minMembersLimit = parsedMin
+		}
+	}
+
+	maxMembersLimit := 5
+	if maxStr := os.Getenv("MAX_TEAM_MEMBERS"); maxStr != "" {
+		if parsedMax, err := strconv.Atoi(strings.TrimSpace(maxStr)); err == nil && parsedMax > 0 {
+			maxMembersLimit = parsedMax
+		}
+	} else if maxStr := os.Getenv("TEAM_MAX_MEMBERS"); maxStr != "" {
+		if parsedMax, err := strconv.Atoi(strings.TrimSpace(maxStr)); err == nil && parsedMax > 0 {
+			maxMembersLimit = parsedMax
+		}
+	} else if maxStr := os.Getenv("TEAM_MEMBER_CAP"); maxStr != "" {
+		if parsedMax, err := strconv.Atoi(strings.TrimSpace(maxStr)); err == nil && parsedMax > 0 {
+			maxMembersLimit = parsedMax
+		}
+	}
+
 	registrationPaymentAmount := 200.0
 	paymentAmountString := os.Getenv("PAYMENT_AMOUNT")
+	if paymentAmountString == "" {
+		paymentAmountString = os.Getenv("REGISTRATION_FEE")
+	}
+	if paymentAmountString == "" {
+		paymentAmountString = os.Getenv("TEAM_REGISTRATION_PRICE")
+	}
+	if paymentAmountString == "" {
+		paymentAmountString = os.Getenv("REGISTRATION_PRICE")
+	}
 	if paymentAmountString != "" {
-		parsedAmount, parseAmountError := strconv.ParseFloat(paymentAmountString, 64)
+		parsedAmount, parseAmountError := strconv.ParseFloat(strings.TrimSpace(paymentAmountString), 64)
 		if parseAmountError == nil && parsedAmount > 0 {
 			registrationPaymentAmount = parsedAmount
 		}
 	}
 
-	cashfreeApplicationIdentifier := os.Getenv("CASHFREE_APP_ID")
-	cashfreeSecretAPIKey := os.Getenv("CASHFREE_SECRET_KEY")
+	cashfreeApplicationIdentifier := strings.TrimSpace(os.Getenv("CASHFREE_APP_ID"))
+	cashfreeSecretAPIKey := strings.TrimSpace(os.Getenv("CASHFREE_SECRET_KEY"))
 
-	cashfreeEnvironmentMode := os.Getenv("CASHFREE_ENV")
+	cashfreeEnvironmentMode := strings.ToUpper(strings.TrimSpace(os.Getenv("CASHFREE_ENV")))
 	if cashfreeEnvironmentMode == "" {
-		cashfreeEnvironmentMode = "PRODUCTION"
+		cashfreeEnvironmentMode = "SANDBOX"
 	}
 
-	cashfreeAPIVersionHeader := os.Getenv("CASHFREE_API_VERSION")
+	cashfreeAPIVersionHeader := strings.TrimSpace(os.Getenv("CASHFREE_API_VERSION"))
 	if cashfreeAPIVersionHeader == "" {
 		cashfreeAPIVersionHeader = "2023-08-01"
 	}
 
-	dauthClientID := os.Getenv("DAUTH_CLIENT_ID")
-	if dauthClientID == "" {
-		dauthClientID = os.Getenv("VITE_DAUTH_CLIENT_ID")
+	cashfreeNotifyURL := strings.TrimSpace(os.Getenv("CASHFREE_NOTIFY_URL"))
+	if cashfreeNotifyURL == "" {
+		cashfreeNotifyURL = strings.TrimSpace(os.Getenv("WEBHOOK_URL"))
 	}
 
-	dauthClientSecret := os.Getenv("DAUTH_CLIENT_SECRET")
+	dauthClientID := strings.TrimSpace(os.Getenv("DAUTH_CLIENT_ID"))
+	if dauthClientID == "" {
+		dauthClientID = strings.TrimSpace(os.Getenv("VITE_DAUTH_CLIENT_ID"))
+	}
 
-	dauthRedirectURI := os.Getenv("DAUTH_REDIRECT_URI")
+	dauthClientSecret := strings.TrimSpace(os.Getenv("DAUTH_CLIENT_SECRET"))
+
+	dauthRedirectURI := strings.TrimSpace(os.Getenv("DAUTH_REDIRECT_URI"))
 	if dauthRedirectURI == "" {
-		dauthRedirectURI = os.Getenv("VITE_DAUTH_REDIRECT_URI")
+		dauthRedirectURI = strings.TrimSpace(os.Getenv("VITE_DAUTH_REDIRECT_URI"))
 	}
 
 	adminEmailsRaw := os.Getenv("ADMIN_EMAILS")
@@ -194,7 +239,7 @@ func LoadConfig() *Config {
 		googleClientID = os.Getenv("VITE_GOOGLE_CLIENT_ID")
 	}
 
-	log.Printf("Loaded configuration with port: %s, cashfree mode: %s, admin emails: %v", serverPort, cashfreeEnvironmentMode, adminEmailsList)
+	log.Printf("Loaded configuration with port: %s, cashfree mode: %s, dauth client: %s, admin emails: %v", serverPort, cashfreeEnvironmentMode, dauthClientID, adminEmailsList)
 
 	return &Config{
 		Port:                serverPort,
@@ -203,11 +248,14 @@ func LoadConfig() *Config {
 		AllowedOrigins:      allowedOriginsList,
 		FrontendURL:         frontendApplicationURL,
 		TeamCap:             teamCapacityLimit,
+		MinTeamMembers:      minMembersLimit,
+		MaxTeamMembers:      maxMembersLimit,
 		PaymentAmount:       registrationPaymentAmount,
 		CashfreeAppID:       cashfreeApplicationIdentifier,
 		CashfreeSecretKey:   cashfreeSecretAPIKey,
 		CashfreeEnvironment: cashfreeEnvironmentMode,
 		CashfreeApiVersion:  cashfreeAPIVersionHeader,
+		CashfreeNotifyURL:   cashfreeNotifyURL,
 		DAuthClientID:       dauthClientID,
 		DAuthClientSecret:   dauthClientSecret,
 		DAuthRedirectURI:    dauthRedirectURI,

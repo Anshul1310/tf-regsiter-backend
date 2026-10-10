@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -186,6 +187,7 @@ func (userService *UserService) LoginWithDAuth(requestContext context.Context, l
 
 	var tokenResult models.DAuthTokenResponse
 	if unmarshalErr := json.Unmarshal(tokenResponseBody, &tokenResult); unmarshalErr != nil {
+		log.Printf("[LoginWithDAuth] JSON unmarshal error: %v (raw response: %s)", unmarshalErr, string(tokenResponseBody))
 		return nil, fmt.Errorf("failed to parse dauth token response: %w (body: %s)", unmarshalErr, string(tokenResponseBody))
 	}
 
@@ -197,6 +199,7 @@ func (userService *UserService) LoginWithDAuth(requestContext context.Context, l
 		if errMsg == "" {
 			errMsg = string(tokenResponseBody)
 		}
+		log.Printf("[LoginWithDAuth] DAuth token rejected (HTTP %d): %s", tokenHTTPResponse.StatusCode, string(tokenResponseBody))
 		return nil, fmt.Errorf("failed to retrieve access token from dauth: %s", errMsg)
 	}
 
